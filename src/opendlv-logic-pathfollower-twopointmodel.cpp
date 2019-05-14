@@ -280,6 +280,10 @@ int32_t main(int32_t argc, char **argv)
           double vx = aimPointDistance / timeToArrive;
           double yawRate = timeToAlign * aimPointAngle;
 
+          if (verbose) {
+            std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
+          }
+
           opendlv::proxy::GroundMotionRequest gmr;
           gmr.vx(static_cast<float>(vx));
           gmr.yawRate(static_cast<float>(yawRate));
