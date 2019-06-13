@@ -130,6 +130,21 @@ int32_t main(int32_t argc, char **argv)
             
           od4.send(msg, cluon::time::now(), 0);
 
+	  // Step 0: Check if we should release
+	  {
+            std::array<double, 2> releasePos{57.727305917,16.66538775};
+            auto cc = wgs84::toCartesian(releasePos, pos);
+            double dd{sqrt(cc[0] * cc[0] + cc[1] * cc[1])};
+            if (dd < 20.0) {
+	      opendlv::proxy::RemoteMessageRequest rmr;
+              rmr.address("0046705294558");
+              rmr.message("Undock");
+              if (verbose) {
+                std::cout << "Releasing" << std::endl;
+              }
+            }
+	  }
+
           // Step 1: Find heading based on two positions
           if (!hasPrevPos) {
             prevPos = pos;
@@ -209,8 +224,8 @@ int32_t main(int32_t argc, char **argv)
             j1Heading = atan2(j1Direction[1], j1Direction[0]);
           }
 
-          bool goingBackwards = 
-            (fabs(heading - j0Heading) < fabs(heading - j1Heading));
+          bool goingBackwards = false;
+//            (fabs(heading - j0Heading) < fabs(heading - j1Heading));
 
           // Step 4: Find aim point
           std::array<double, 2> aimPoint = globalPath[closestPointIndex];
