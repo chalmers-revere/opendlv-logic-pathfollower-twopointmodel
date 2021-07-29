@@ -1,3 +1,4 @@
+# Copyright (C) 2021 Bjornborg Nguyen
 # Copyright (C) 2019 Ola Benderius
 #
 # This program is free software: you can redistribute it and/or modify
@@ -13,14 +14,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-FROM alpine:3.8 as builder
-RUN echo http://dl-4.alpinelinux.org/alpine/v3.8/main > /etc/apk/repositories && \
-    echo http://dl-4.alpinelinux.org/alpine/v3.8/community >> /etc/apk/repositories && \
-    apk update && \
+FROM alpine:latest as builder
+RUN apk update && \
     apk --no-cache add \
-        cmake \
-        g++ \
-        make
+    cmake \
+    g++ \
+    gcc \
+    make \
+    linux-headers
 ADD . /opt/sources
 WORKDIR /opt/sources
 RUN mkdir build && \
@@ -29,7 +30,7 @@ RUN mkdir build && \
     make && make install
 
 
-FROM alpine:3.9
+FROM alpine:latest
 
 WORKDIR /usr/bin
 COPY --from=builder /tmp/bin/opendlv-logic-pathfollower-twopointmodel .

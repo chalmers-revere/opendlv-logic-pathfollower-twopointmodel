@@ -48,6 +48,8 @@ inline std::array<double, 2> toCartesian(const std::array<double, 2> &WGS84Refer
     constexpr double EQUATOR_RADIUS{6378137.0};
     constexpr double FLATTENING{1.0 / 298.257223563};
     constexpr double SQUARED_ECCENTRICITY{2.0 * FLATTENING - FLATTENING * FLATTENING};
+    constexpr double SQUARE_ROOT_ONE_MINUS_ECCENTRICITY{0.996647189335};
+    constexpr double POLE_RADIUS{EQUATOR_RADIUS * SQUARE_ROOT_ONE_MINUS_ECCENTRICITY};
 
     constexpr double C00{1.0};
     constexpr double C02{0.25};
@@ -113,27 +115,29 @@ inline std::array<double, 2> toCartesian(const std::array<double, 2> &WGS84Refer
  * @return std::array<double, 2> Approximating a WGS84 position from a given CartesianPosition based on a given WGS84Reference using Mercator projection.
  */
 inline std::array<double, 2> fromCartesian(const std::array<double, 2> &WGS84Reference, const std::array<double, 2> &CartesianPosition) {
-    constexpr double EPSILON10{1.0e-2};
-    constexpr double incLon{1e-5};
+    constexpr double EPSILON10{1.0e-4};
     const int32_t signLon{(CartesianPosition[0] < 0) ? -1 : 1};
-    constexpr double incLat{incLon};
     const int32_t signLat{(CartesianPosition[1] < 0) ? -1 : 1};
 
     std::array<double, 2> approximateWGS84Position{WGS84Reference};
     std::array<double, 2> cartesianResult{toCartesian(WGS84Reference, approximateWGS84Position)};
 
-    double dPrev{std::numeric_limits<double>::max()};
-    double d{std::abs(CartesianPosition[1] - cartesianResult[1])};
+    double dPrev{(std::numeric_limits<double>::max)()};
+    double d = std::abs(CartesianPosition[1] - cartesianResult[1]);
+    double incLat{1e-6};
     while ((d < dPrev) && (d > EPSILON10)) {
+        incLat = std::max(1e-6 * d, static_cast<double>(1e-9));
         approximateWGS84Position[0] = approximateWGS84Position[0] + signLat * incLat;
         cartesianResult             = toCartesian(WGS84Reference, approximateWGS84Position);
         dPrev                       = d;
         d                           = std::abs(CartesianPosition[1] - cartesianResult[1]);
     }
 
-    dPrev = std::numeric_limits<double>::max();
+    dPrev = (std::numeric_limits<double>::max)();
     d     = std::abs(CartesianPosition[0] - cartesianResult[0]);
+    double incLon{1e-6};
     while ((d < dPrev) && (d > EPSILON10)) {
+        incLon = std::max(1e-6 * d, static_cast<double>(1e-9));
         approximateWGS84Position[1] = approximateWGS84Position[1] + signLon * incLon;
         cartesianResult             = toCartesian(WGS84Reference, approximateWGS84Position);
         dPrev                       = d;
