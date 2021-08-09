@@ -1,3 +1,4 @@
+# Copyright (C) 2021 Bjornborg Nguyen
 # Copyright (C) 2019 Ola Benderius
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,7 +21,7 @@ project(opendlv-logic-pathfollower-twopointmodel)
 ################################################################################
 # Defining the relevant version of libcluon.
 set(OPENDLV_STANDARD_MESSAGE_SET opendlv-standard-message-set-v0.9.10.odvd)
-set(CLUON_COMPLETE cluon-complete-v0.0.121.hpp)
+set(CLUON_COMPLETE cluon-complete-v0.0.140.hpp)
 
 ################################################################################
 # Set the search path for .cmake files.
@@ -45,8 +46,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
     -Wall -Wshadow -Wdeprecated \
     -Wdiv-by-zero -Wfloat-equal -Wfloat-conversion -Wsign-compare -Wpointer-arith \
     -Wuninitialized -Wunreachable-code \
+    -Wextra -Wunused -Wunused-variable -Wunused-function -Wunused-label -Wunused-parameter -Wunused-but-set-parameter -Wunused-but-set-variable \
     -Wmissing-field-initializers -Wmissing-format-attribute -Wmissing-include-dirs -Wmissing-noreturn")
-    # -Wextra -Wunused -Wunused-variable -Wunused-function -Wunused-label -Wunused-parameter -Wunused-but-set-parameter -Wunused-but-set-variable \
 
 ################################################################################
 # Extract cluon-msc from cluon-complete.hpp.
@@ -66,6 +67,7 @@ add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp
 # Add current build directory as include directory as it contains generated files.
 include_directories(SYSTEM ${CMAKE_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
 
 ################################################################################
 # Threads are necessary for linking the resulting binaries as UDPReceiver is running in parallel.
@@ -81,8 +83,22 @@ if(UNIX)
 endif()
 
 ################################################################################
+# opencv
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+
+include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cv-plot/CvPlot/inc)
+add_compile_definitions(CVPLOT_HEADER_ONLY)
+add_compile_definitions(WITH_OPENCV)
+
+
+set(LIBRARIES Threads::Threads 
+${OpenCV_LIBS} 
+)
+
+################################################################################
 # Create executable.
-add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}.cpp ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp)
+add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}.cpp ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp )
 target_link_libraries(${PROJECT_NAME} ${LIBRARIES})
 
 ################################################################################
