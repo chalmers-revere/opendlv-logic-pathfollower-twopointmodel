@@ -449,7 +449,10 @@ int32_t main(int32_t argc, char **argv)
           }
           // Current aimpoint
           auto curAimpointXY = wgs84::toCartesian(curPosCopy, curAimpointCopy);
-          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setPoints(std::vector<cv::Point2d>{{curAimpointXY.front(), curAimpointXY.back()}});
+          // realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setPoints(std::vector<cv::Point2d>{{curAimpointXY.front(), curAimpointXY.back()}});
+          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setX(std::vector<double>{curAimpointXY.front()});
+          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setY(std::vector<double>{curAimpointXY.back()});
+
           // realtimeCanvas.create<CvPlot::Series>(std::vector<double>{curAimpointXY.front()}, std::vector<double>{curAimpointXY.back()}, "b.").setName("Current aimpoint");
 
           // Generate relative map
