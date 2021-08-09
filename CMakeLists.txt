@@ -20,7 +20,7 @@ project(opendlv-logic-pathfollower-twopointmodel)
 ################################################################################
 # Defining the relevant version of libcluon.
 set(OPENDLV_STANDARD_MESSAGE_SET opendlv-standard-message-set-v0.9.10.odvd)
-set(CLUON_COMPLETE cluon-complete-v0.0.121.hpp)
+set(CLUON_COMPLETE cluon-complete-v0.0.140.hpp)
 
 ################################################################################
 # Set the search path for .cmake files.
