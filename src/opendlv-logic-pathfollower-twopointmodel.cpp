@@ -340,6 +340,8 @@ int32_t main(int32_t argc, char **argv)
 
             if (verbose)
             {
+              // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
+
               std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
             }
 
@@ -449,6 +451,8 @@ int32_t main(int32_t argc, char **argv)
           }
           // Current aimpoint
           auto curAimpointXY = wgs84::toCartesian(curPosCopy, curAimpointCopy);
+
+          // std::cout << "Current relative aim: " << curAimpointXY.front() << ", " << curAimpointXY.back() << std::endl;
           // realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setPoints(std::vector<cv::Point2d>{{curAimpointXY.front(), curAimpointXY.back()}});
           realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setX(std::vector<double>{curAimpointXY.front()});
           realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setY(std::vector<double>{curAimpointXY.back()});
@@ -471,7 +475,7 @@ int32_t main(int32_t argc, char **argv)
           realtimeCanvas.find<CvPlot::Series>("Preloaded GNSS path")->setY(yCartesianCord);
 
           cv::imshow("Debug window", realtimeCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
-          cv::waitKey(10);
+          cv::waitKey(100);
         }};
 
     initCanvas();
@@ -482,7 +486,7 @@ int32_t main(int32_t argc, char **argv)
         std::cout << "Looping" << std::endl;
       }
       renderCanvas();
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     retCode = 0;
