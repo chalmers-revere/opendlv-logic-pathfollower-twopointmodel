@@ -46,25 +46,13 @@ int32_t main(int32_t argc, char **argv)
               << "--time-to-align=<Time-to-align the preview point in yaw angle> "
               << "--time-to-arrive=<Time-to-arrive to preview point>"
               << "[--id-input=<Sender stamp of GPS input>]"
-              << "[--id-output=<Sender stamp of motion request output>] "
-              << "[--p=<P value>] "
-              << "[--d=<D value>] "
-              << "[--i=<I value>] "
-              << "[--e=<E value, equilibrium point scaling of control value>] "
-              << "[--i-limit=<I component limit>] "
-              << "[--output-limit-min=<Minimum output value>] "
-              << "[--output-limit-max=<Maximum output value>] "
-              << "[--input-sender-id=<Sender ID of input message>] "
-              << "[--control-sender-id=<Sender ID of control message>] "
-              << "[--output-sender-id=<Sender ID of output message>] "
-              << "[--deceleration-error-threshold=<Error threshold before braking "
-              << "(sign is omitted)>] [--deceleration-p=<P value for deceleration>] "
+              << "[--id-output=<Sender stamp of motion request output>]"
               << "[--speedtarget=<target constant speed>]"
-              << " [--verbose]" << std::endl
-              << "Example: " << argv[0] << " --cid=111 --freq=100 "
+              << "[--verbose]"
+              << std::endl
+              << "Example: " << argv[0] << " --cid=111 --freq=20 "
               << "--rec-path=gps-path.rec --max-preview-distance=20.0 "
-              << "--time-to-align=2.5 --time-to-arrive=30.0"
-              << std::endl;
+              << "--time-to-align=2.5 --time-to-arrive=30.0" << std::endl;
   }
   else
   {
@@ -78,7 +66,7 @@ int32_t main(int32_t argc, char **argv)
         std::stof(commandlineArguments["max-preview-distance"])};
     float timeToAlign{std::stof(commandlineArguments["time-to-align"])};
     float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
-    double const constantSpeedTarget{(commandlineArguments.count("id-output") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 30};
+    double const constantSpeedTarget{(commandlineArguments.count("id-output") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
 
     cluon::OD4Session od4{
         static_cast<uint16_t>(std::stoi(commandlineArguments["cid"]))};
@@ -96,9 +84,6 @@ int32_t main(int32_t argc, char **argv)
         if (next.first)
         {
           cluon::data::Envelope env{std::move(next.second)};
-          // Applanix has senderstamp 0
-          // Trimble has senderstamp 99
-
           if (env.dataType() == opendlv::proxy::GeodeticWgs84Reading::ID())
           {
             auto msg =
@@ -146,11 +131,14 @@ int32_t main(int32_t argc, char **argv)
     }
 
     bool hasPrevPos = false;
+    std::mutex wgsMutex;
+    std::array<double, 2> curPos{globalPath.front()};
+    std::array<double, 2> curAimpoint{globalPath.front()};
     std::array<double, 2> prevPos{};
     int32_t closestGlobalPointIndex{-1};
 
     auto onGeodeticWgs84Reading{
-        [&od4, &prevPos, &hasPrevPos, &globalPath,
+        [&od4, &wgsMutex, &curPos, &curAimpoint, &prevPos, &hasPrevPos, &globalPath,
          &closestGlobalPointIndex, &globalPathIsClosed, &maxPreviewDistance,
          &timeToAlign, &timeToArrive, &senderStampInput, &senderStampOutput,
          &constantSpeedTarget, &verbose](cluon::data::Envelope &&envelope)
@@ -162,24 +150,25 @@ int32_t main(int32_t argc, char **argv)
                     std::move(envelope));
             std::array<double, 2> pos{msg.latitude(), msg.longitude()};
 
-            od4.send(msg, cluon::time::now(), 0);
+            // od4.send(msg, cluon::time::now(), 0);
 
             // Step 0: Check if we should release
-            {
-              std::array<double, 2> releasePos{57.727305917, 16.66538775};
-              auto cc = wgs84::toCartesian(releasePos, pos);
-              double dd{sqrt(cc[0] * cc[0] + cc[1] * cc[1])};
-              if (dd < 20.0)
-              {
-                opendlv::proxy::RemoteMessageRequest rmr;
-                rmr.address("0046705294558");
-                rmr.message("Undock");
-                if (verbose)
-                {
-                  std::cout << "Releasing" << std::endl;
-                }
-              }
-            }
+            // 2021-08-09: Doesn't apply on all vehicles, remove this
+            // {
+            //   std::array<double, 2> releasePos{57.727305917, 16.66538775};
+            //   auto cc = wgs84::toCartesian(releasePos, pos);
+            //   double dd{sqrt(cc[0] * cc[0] + cc[1] * cc[1])};
+            //   if (dd < 20.0)
+            //   {
+            //     opendlv::proxy::RemoteMessageRequest rmr;
+            //     rmr.address("0046705294558");
+            //     rmr.message("Undock");
+            //     if (verbose)
+            //     {
+            //       std::cout << "Releasing" << std::endl;
+            //     }
+            //   }
+            // }
 
             // Step 1: Find heading based on two positions
             if (!hasPrevPos)
@@ -244,28 +233,29 @@ int32_t main(int32_t argc, char **argv)
             prevPos = pos;
 
             // Step 3: Find what direction to go, based on heading
-            double j0Heading;
-            double j1Heading;
-            {
-              int32_t j0 = closestPointIndex - 1;
-              if (j0 == -1)
-              {
-                j0 = globalPathIsClosed ? globalPath.size() - 1 : 0;
-              }
-              std::array<double, 2> j0Direction = wgs84::toCartesian(prevPos,
-                                                                     globalPath[j0]);
-              j0Heading = atan2(j0Direction[1], j0Direction[0]);
-            }
-            {
-              int32_t j1 = closestPointIndex + 1;
-              if (j1 == static_cast<int32_t>(globalPath.size()))
-              {
-                j1 = globalPathIsClosed ? 0 : globalPath.size() - 1;
-              }
-              std::array<double, 2> j1Direction = wgs84::toCartesian(prevPos,
-                                                                     globalPath[j1]);
-              j1Heading = atan2(j1Direction[1], j1Direction[0]);
-            }
+            // 2021-08-09 16:55:35 | This is not currently used?
+            // double j0Heading;
+            // double j1Heading;
+            // {
+            //   int32_t j0 = closestPointIndex - 1;
+            //   if (j0 == -1)
+            //   {
+            //     j0 = globalPathIsClosed ? globalPath.size() - 1 : 0;
+            //   }
+            //   std::array<double, 2> j0Direction = wgs84::toCartesian(prevPos,
+            //                                                          globalPath[j0]);
+            //   j0Heading = atan2(j0Direction[1], j0Direction[0]);
+            // }
+            // {
+            //   int32_t j1 = closestPointIndex + 1;
+            //   if (j1 == static_cast<int32_t>(globalPath.size()))
+            //   {
+            //     j1 = globalPathIsClosed ? 0 : globalPath.size() - 1;
+            //   }
+            //   std::array<double, 2> j1Direction = wgs84::toCartesian(prevPos,
+            //                                                          globalPath[j1]);
+            //   j1Heading = atan2(j1Direction[1], j1Direction[0]);
+            // }
 
             bool goingBackwards = false;
             //            (fabs(heading - j0Heading) < fabs(heading - j1Heading));
@@ -337,13 +327,14 @@ int32_t main(int32_t argc, char **argv)
               }
             }
 
-            opendlv::proxy::GeodeticWgs84Reading wgs84;
-            wgs84.latitude(aimPoint[0]);
-            wgs84.longitude(aimPoint[1]);
-            od4.send(wgs84, cluon::time::now(), 98);
+            // 2021-08-09 17:07:40 | This is probably some debugging information. Disabled for now.
+            // Current aimpoint taken from pre-recorded gnss trace
+            // opendlv::proxy::GeodeticWgs84Reading wgs84;
+            // wgs84.latitude(aimPoint[0]);
+            // wgs84.longitude(aimPoint[1]);
+            // od4.send(wgs84, cluon::time::now(), 98);
 
             // Step 5: Calculate and send control
-            // double vx = aimPointDistance / timeToArrive;
             double vx = constantSpeedTarget;
             double yawRate = timeToAlign * aimPointAngle;
 
@@ -357,12 +348,21 @@ int32_t main(int32_t argc, char **argv)
             gmr.yawRate(static_cast<float>(yawRate));
 
             od4.send(gmr, cluon::time::now(), senderStampOutput);
+            {
+              std::lock_guard<std::mutex> l(wgsMutex);
+              curPos = pos;
+              curAimpoint = aimPoint;
+            }
           }
         }};
-    auto plotCanvas{CvPlot::makePlotAxes()};
 
-    auto plotGlobalPath{
-        [&plotCanvas, &globalPath, &maxInd]()
+    od4.dataTrigger(opendlv::proxy::GeodeticWgs84Reading::ID(),
+                    onGeodeticWgs84Reading);
+
+    auto refCanvas{CvPlot::makePlotAxes()};
+
+    auto refCanvasInit{
+        [&refCanvas, &globalPath, &maxInd]()
         {
           std::vector<double> xCartesianCord;
           std::vector<double> yCartesianCord;
@@ -373,27 +373,112 @@ int32_t main(int32_t argc, char **argv)
             xCartesianCord.push_back(cartesianCords.front());
             yCartesianCord.push_back(cartesianCords.back());
           }
-          plotCanvas.create<CvPlot::Series>(xCartesianCord, yCartesianCord, "b.").setName("GNSS path");
-          // plotCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.front()}, std::vector<double>{yCartesianCord.front()}, "go").setName("Start");
-          // plotCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.back()}, std::vector<double>{yCartesianCord.back()}, "ro").setName("End");
+          refCanvas.create<CvPlot::Series>(xCartesianCord, yCartesianCord, "b.").setName("Preloaded GNSS path");
+          // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.front()}, std::vector<double>{yCartesianCord.front()}, "go").setName("Start");
+          // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.back()}, std::vector<double>{yCartesianCord.back()}, "ro").setName("End");
           // 10081
-          plotCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "ro").setName("I");
+          refCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "ro").setName("Largest jump");
 
-          plotCanvas.create<CvPlot::Legend>().setParentAxes(&plotCanvas);
+          // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "go").setName("Current");
+          // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "r.").setName("Aimpoint");
 
-          CvPlot::show("Path", plotCanvas);
+          refCanvas.title("Map");
+          refCanvas.xLabel("x [m]");
+          refCanvas.yLabel("y [m]");
+          refCanvas.create<CvPlot::Legend>().setParentAxes(&refCanvas);
+
+          // CvPlot::show("Path", plotCanvas);
           // auto PlotImage{plotCanvas.render(800, 800).getUMat(cv::ACCESS_READ)};
           // std::cout << "Plotting the loaded path." << std::endl;
           // cv::imshow("Plotting", PlotImage);
           // cv::waitKey();
+
+          cv::imshow("Loaded GNSS map", refCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
+          cv::waitKey(1000);
         }};
-    plotGlobalPath();
+    refCanvasInit();
 
-    od4.dataTrigger(opendlv::proxy::GeodeticWgs84Reading::ID(),
-                    onGeodeticWgs84Reading);
+    auto realtimeCanvas{CvPlot::makePlotAxes()};
 
+    auto initCanvas{
+        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &globalPath]()
+        {
+          std::array<double, 2> curPosCopy;
+          std::array<double, 2> curAimpointCopy;
+          {
+            std::lock_guard<std::mutex> l(wgsMutex);
+            curPosCopy = curPos;
+            curAimpointCopy = curAimpoint;
+          }
+          // Generate relative map
+          std::vector<double> xCartesianCord;
+          std::vector<double> yCartesianCord;
+          // std::array<double, 2> reference = globalPath.front();
+          for (std::array<double, 2> wgs84Point : globalPath)
+          {
+            auto cartesianCords = wgs84::toCartesian(curPosCopy, wgs84Point);
+            xCartesianCord.push_back(cartesianCords.front());
+            yCartesianCord.push_back(cartesianCords.back());
+          }
+          realtimeCanvas.create<CvPlot::Series>(xCartesianCord, yCartesianCord, "b.").setName("Preloaded GNSS path");
+
+          // Current position
+          realtimeCanvas.create<CvPlot::Series>(std::vector<double>{0.0}, std::vector<double>{0.0}, "ro").setName("Current pos");
+          // Current aimpoint
+          auto curAimpointXY = wgs84::toCartesian(curPosCopy, curAimpointCopy);
+          realtimeCanvas.create<CvPlot::Series>(std::vector<double>{curAimpointXY.front()}, std::vector<double>{curAimpointXY.back()}, "go").setName("Current aimpoint").setMarkerSize(4);
+
+          realtimeCanvas.title("Map");
+          realtimeCanvas.xLabel("x [m]");
+          realtimeCanvas.yLabel("y [m]");
+          realtimeCanvas.setXLim({-10, 10})
+              .setYLim({-10, 10})
+              .setFixedAspectRatio();
+          realtimeCanvas.create<CvPlot::Legend>().setParentAxes(&realtimeCanvas);
+        }};
+
+    auto renderCanvas{
+        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &globalPath]()
+        {
+          std::array<double, 2> curPosCopy;
+          std::array<double, 2> curAimpointCopy;
+          {
+            std::lock_guard<std::mutex> l(wgsMutex);
+            curPosCopy = curPos;
+            curAimpointCopy = curAimpoint;
+          }
+          // Current aimpoint
+          auto curAimpointXY = wgs84::toCartesian(curPosCopy, curAimpointCopy);
+          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setPoints(std::vector<cv::Point2d>{{curAimpointXY.front(), curAimpointXY.back()}});
+          // realtimeCanvas.create<CvPlot::Series>(std::vector<double>{curAimpointXY.front()}, std::vector<double>{curAimpointXY.back()}, "b.").setName("Current aimpoint");
+
+          // Generate relative map
+          std::vector<double>
+              xCartesianCord;
+          std::vector<double> yCartesianCord;
+          // std::array<double, 2> reference = globalPath.front();
+          for (std::array<double, 2> wgs84Point : globalPath)
+          {
+            auto cartesianCords = wgs84::toCartesian(curPosCopy, wgs84Point);
+            xCartesianCord.push_back(cartesianCords.front());
+            yCartesianCord.push_back(cartesianCords.back());
+          }
+          // realtimeCanvas.create<CvPlot::Series>(xCartesianCord, yCartesianCord, "b.").setName("Preloaded GNSS path");
+          realtimeCanvas.find<CvPlot::Series>("Preloaded GNSS path")->setX(xCartesianCord);
+          realtimeCanvas.find<CvPlot::Series>("Preloaded GNSS path")->setY(yCartesianCord);
+
+          cv::imshow("Debug window", realtimeCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
+          cv::waitKey(10);
+        }};
+
+    initCanvas();
     while (od4.isRunning())
     {
+      if (verbose)
+      {
+        std::cout << "Looping" << std::endl;
+      }
+      renderCanvas();
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
