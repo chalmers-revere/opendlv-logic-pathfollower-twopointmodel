@@ -62,6 +62,7 @@ int32_t main(int32_t argc, char **argv)
         (commandlineArguments.count("id-output") != 0) ? static_cast<uint32_t>(std::stoi(commandlineArguments["id-output"])) : 0};
     bool const verbose{commandlineArguments.count("verbose") != 0};
 
+    // 2021-08-09 21:40:52 | What does these do?
     float maxPreviewDistance{
         std::stof(commandlineArguments["max-preview-distance"])};
     float timeToAlign{std::stof(commandlineArguments["time-to-align"])};
@@ -177,6 +178,7 @@ int32_t main(int32_t argc, char **argv)
               hasPrevPos = true;
               return;
             }
+            // 2021-08-10 09:40:59 | This is causing inaccurate estimation at slow speed, especially stand still
             double heading;
             {
               std::array<double, 2> direction = wgs84::toCartesian(prevPos, pos);
@@ -475,7 +477,6 @@ int32_t main(int32_t argc, char **argv)
           realtimeCanvas.find<CvPlot::Series>("Preloaded GNSS path")->setY(yCartesianCord);
 
           cv::imshow("Debug window", realtimeCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
-          cv::waitKey(100);
         }};
 
     initCanvas();
@@ -486,7 +487,8 @@ int32_t main(int32_t argc, char **argv)
         std::cout << "Looping" << std::endl;
       }
       renderCanvas();
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      cv::waitKey(100);
+      // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     retCode = 0;
