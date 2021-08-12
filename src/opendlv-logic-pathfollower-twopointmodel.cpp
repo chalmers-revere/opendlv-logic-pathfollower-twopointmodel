@@ -34,8 +34,9 @@ int32_t main(int32_t argc, char **argv)
       (0 == commandlineArguments.count("freq")) ||
       (0 == commandlineArguments.count("rec-path")) ||
       (0 == commandlineArguments.count("max-preview-distance")) ||
-      (0 == commandlineArguments.count("time-to-align")) ||
-      (0 == commandlineArguments.count("time-to-arrive")))
+      (0 == commandlineArguments.count("time-to-align"))
+      // (0 == commandlineArguments.count("time-to-arrive"))
+  )
   {
     std::cerr << argv[0] << " follows a GPS path from the given .rec file by"
               << "using the Two point model of steering (Salvucci and Gray, 2004) combined with a PID speed controller."
@@ -52,10 +53,16 @@ int32_t main(int32_t argc, char **argv)
               << std::endl
               << "Example: " << argv[0] << " --cid=111 --freq=20 "
               << "--rec-path=gps-path.rec --max-preview-distance=20.0 "
-              << "--time-to-align=2.5 --time-to-arrive=30.0" << std::endl;
+              << "--time-to-align=2.5" << std::endl;
   }
   else
   {
+    // 2021-08-10 17:06:05 | Curvature, adaptive speed?
+    // 2021-08-10 17:06:23 | Hack next gnss trace?
+    // 2021-08-10 17:06:56 | Optimal speed?
+
+    // 2021-08-10 14:55:13 | 50 km /h, steerincoeff 10, maxpreview 30,time2align 2.7
+    // 2021-08-10 14:55:13 | 70 km /h, steerincoeff 16.8, maxpreview 25, time2align 2.2
     uint32_t const senderStampInput{
         (commandlineArguments.count("id-input") != 0) ? static_cast<uint32_t>(std::stoi(commandlineArguments["id-input"])) : 0};
     uint32_t const senderStampOutput{
@@ -66,8 +73,8 @@ int32_t main(int32_t argc, char **argv)
     float maxPreviewDistance{
         std::stof(commandlineArguments["max-preview-distance"])};
     float timeToAlign{std::stof(commandlineArguments["time-to-align"])};
-    float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
-    double const constantSpeedTarget{(commandlineArguments.count("id-output") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
+    // float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
+    double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
 
     cluon::OD4Session od4{
         static_cast<uint16_t>(std::stoi(commandlineArguments["cid"]))};
@@ -114,7 +121,9 @@ int32_t main(int32_t argc, char **argv)
       }
       auto c = wgs84::toCartesian(globalPath.front(), globalPath.back());
       double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
-      if (distance < maxDistance)
+      // 2021-08-12 15:06:54 | Hard condition to meet (distance < maxDistance) which is rouhgly 0.5m.
+      // Changing this to a hardcoded constant, 5m.
+      if (distance < 5.0)
       {
         globalPathIsClosed = true;
       }
@@ -141,7 +150,9 @@ int32_t main(int32_t argc, char **argv)
     auto onGeodeticWgs84Reading{
         [&od4, &wgsMutex, &curPos, &curAimpoint, &prevPos, &hasPrevPos, &globalPath,
          &closestGlobalPointIndex, &globalPathIsClosed, &maxPreviewDistance,
-         &timeToAlign, &timeToArrive, &senderStampInput, &senderStampOutput,
+         &timeToAlign,
+         //  &timeToArrive,
+         &senderStampInput, &senderStampOutput,
          &constantSpeedTarget, &verbose](cluon::data::Envelope &&envelope)
         {
           if (envelope.senderStamp() == senderStampInput)
@@ -430,13 +441,19 @@ int32_t main(int32_t argc, char **argv)
           realtimeCanvas.create<CvPlot::Series>(std::vector<double>{0.0}, std::vector<double>{0.0}, "ro").setName("Current pos");
           // Current aimpoint
           auto curAimpointXY = wgs84::toCartesian(curPosCopy, curAimpointCopy);
-          realtimeCanvas.create<CvPlot::Series>(std::vector<double>{curAimpointXY.front()}, std::vector<double>{curAimpointXY.back()}, "go").setName("Current aimpoint").setMarkerSize(4);
+          realtimeCanvas.create<CvPlot::Series>(
+                            std::vector<double>{0.0, curAimpointXY.front()},
+                            std::vector<double>{0.0, curAimpointXY.back()},
+                            "k-o")
+              .setName("Current aimpoint")
+              .setMarkerSize(4);
 
           realtimeCanvas.title("Map");
           realtimeCanvas.xLabel("x [m]");
           realtimeCanvas.yLabel("y [m]");
-          realtimeCanvas.setXLim({-10, 10})
-              .setYLim({-10, 10})
+          uint8_t lim{30};
+          realtimeCanvas.setXLim({-lim, lim})
+              .setYLim({-lim, lim})
               .setFixedAspectRatio();
           realtimeCanvas.create<CvPlot::Legend>().setParentAxes(&realtimeCanvas);
         }};
@@ -456,8 +473,8 @@ int32_t main(int32_t argc, char **argv)
 
           // std::cout << "Current relative aim: " << curAimpointXY.front() << ", " << curAimpointXY.back() << std::endl;
           // realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setPoints(std::vector<cv::Point2d>{{curAimpointXY.front(), curAimpointXY.back()}});
-          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setX(std::vector<double>{curAimpointXY.front()});
-          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setY(std::vector<double>{curAimpointXY.back()});
+          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setX(std::vector<double>{0.0, curAimpointXY.front()});
+          realtimeCanvas.find<CvPlot::Series>("Current aimpoint")->setY(std::vector<double>{0.0, curAimpointXY.back()});
 
           // realtimeCanvas.create<CvPlot::Series>(std::vector<double>{curAimpointXY.front()}, std::vector<double>{curAimpointXY.back()}, "b.").setName("Current aimpoint");
 
@@ -482,14 +499,16 @@ int32_t main(int32_t argc, char **argv)
     initCanvas();
     while (od4.isRunning())
     {
-      if (verbose)
-      {
-        std::cout << "Looping" << std::endl;
-      }
       renderCanvas();
       cv::waitKey(100);
       // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    // Reset control
+    opendlv::proxy::GroundMotionRequest gmr;
+    gmr.vx(0.0f);
+    gmr.yawRate(0.0f);
+    od4.send(gmr, cluon::time::now(), senderStampOutput);
 
     retCode = 0;
   }
