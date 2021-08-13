@@ -63,6 +63,13 @@ int32_t main(int32_t argc, char **argv)
 
     // 2021-08-10 14:55:13 | 50 km /h, steerincoeff 10, maxpreview 30,time2align 2.7
     // 2021-08-10 14:55:13 | 70 km /h, steerincoeff 16.8, maxpreview 25, time2align 2.2
+
+    // 2021-08-13 12:52:25 | 50 km/h ,steerincoeff 16.8, maxpreview 15, time2align 2.0
+    // 2021-08-13 13:51:31 | 60 km/h ,steerincoeff 16.8, maxpreview 18, time2align 2.0
+    // 2021-08-13 14:09:56 | 70 km/h ,steerincoeff 16.8, maxpreview 21, time2align 2.0
+
+    // 2021-08-13 14:34:09 | Higher speed gives more different vehicle dynamics, in regards to steering. Slip angle makes it hard to steer. One potential fix is to increase steering coef.
+
     uint32_t const senderStampInput{
         (commandlineArguments.count("id-input") != 0) ? static_cast<uint32_t>(std::stoi(commandlineArguments["id-input"])) : 0};
     uint32_t const senderStampOutput{
@@ -161,26 +168,6 @@ int32_t main(int32_t argc, char **argv)
                 cluon::extractMessage<opendlv::proxy::GeodeticWgs84Reading>(
                     std::move(envelope));
             std::array<double, 2> pos{msg.latitude(), msg.longitude()};
-
-            // od4.send(msg, cluon::time::now(), 0);
-
-            // Step 0: Check if we should release
-            // 2021-08-09: Doesn't apply on all vehicles, remove this
-            // {
-            //   std::array<double, 2> releasePos{57.727305917, 16.66538775};
-            //   auto cc = wgs84::toCartesian(releasePos, pos);
-            //   double dd{sqrt(cc[0] * cc[0] + cc[1] * cc[1])};
-            //   if (dd < 20.0)
-            //   {
-            //     opendlv::proxy::RemoteMessageRequest rmr;
-            //     rmr.address("0046705294558");
-            //     rmr.message("Undock");
-            //     if (verbose)
-            //     {
-            //       std::cout << "Releasing" << std::endl;
-            //     }
-            //   }
-            // }
 
             // Step 1: Find heading based on two positions
             if (!hasPrevPos)
