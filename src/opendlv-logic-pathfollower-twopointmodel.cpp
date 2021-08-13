@@ -351,7 +351,7 @@ int32_t main(int32_t argc, char **argv)
               //double errX = p1[0] * cos(-previewAngle) - p1[1] * sin(-previewAngle);
               double errY = p1[0] * sin(-previewAngle) + p1[1] * cos(-previewAngle);
 
-              lateralError = -errY;
+              lateralError = errY;
               if (verbose)
               {
                 std::cout << "Lateral error: " << lateralError << std::endl;
