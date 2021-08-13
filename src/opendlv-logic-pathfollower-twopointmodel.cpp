@@ -371,6 +371,14 @@ int32_t main(int32_t argc, char **argv)
 
             if (std::abs(lateralError) > 0.3)
             {
+              if (lateralError < 0)
+              {
+                lateralError += 0.3;
+              }
+              else
+              {
+                lateralError -= 0.3;
+              }
               yawRate += lateralErrorGain * lateralError;
               if (verbose)
               {
