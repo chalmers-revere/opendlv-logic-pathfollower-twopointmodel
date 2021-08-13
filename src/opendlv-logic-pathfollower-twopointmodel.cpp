@@ -368,13 +368,15 @@ int32_t main(int32_t argc, char **argv)
               std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
             }
 
-            yawRate += lateralErrorGain * lateralError;
-
-            if (verbose)
+            if (std::abs(lateralError) > 0.3)
             {
-              // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
+              yawRate += lateralErrorGain * lateralError;
+              if (verbose)
+              {
+                // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
 
-              std::cout << "Modified yaw rate: " << yawRate << std::endl;
+                std::cout << "Modified yaw rate: " << yawRate << std::endl;
+              }
             }
 
             opendlv::proxy::GroundMotionRequest gmr;
