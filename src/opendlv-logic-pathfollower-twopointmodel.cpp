@@ -71,6 +71,8 @@ int32_t main(int32_t argc, char **argv)
 
     // 2021-08-13 14:34:09 | Higher speed gives more different vehicle dynamics, in regards to steering. Slip angle makes it hard to steer. One potential fix is to increase steering coef.
 
+    // 2021-08-13 15:36:29 | Error sign in lateral-error-gain for y;
+
     uint32_t const senderStampInput{
         (commandlineArguments.count("id-input") != 0) ? static_cast<uint32_t>(std::stoi(commandlineArguments["id-input"])) : 0};
     uint32_t const senderStampOutput{
@@ -336,7 +338,6 @@ int32_t main(int32_t argc, char **argv)
             // wgs84.longitude(aimPoint[1]);
             // od4.send(wgs84, cluon::time::now(), 98);
 
-
             // Step 4.5: Find lateral error
 
             double lateralError;
@@ -345,16 +346,16 @@ int32_t main(int32_t argc, char **argv)
               auto p1 = wgs84::toCartesian(pos, globalPath[closestPointIndex]);
 
               double aimAngle = atan2(p0[1], p0[0]);
-              
+
               //double errX = p1[0] * cos(aimAngle) - p1[1] * sin(aimAngle);
               double errY = p1[0] * sin(aimAngle) + p1[1] * cos(aimAngle);
 
-              lateralError = errY;
-              if (verbose) {
+              lateralError = -errY;
+              if (verbose)
+              {
                 std::cout << "Lateral error: " << lateralError << std::endl;
               }
             }
-
 
             // Step 5: Calculate and send control
             double vx = constantSpeedTarget;
@@ -368,15 +369,13 @@ int32_t main(int32_t argc, char **argv)
             }
 
             yawRate += lateralErrorGain * lateralError;
-            
+
             if (verbose)
             {
               // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
 
               std::cout << "Modified yaw rate: " << yawRate << std::endl;
             }
-
-
 
             opendlv::proxy::GroundMotionRequest gmr;
             gmr.vx(static_cast<float>(vx));
