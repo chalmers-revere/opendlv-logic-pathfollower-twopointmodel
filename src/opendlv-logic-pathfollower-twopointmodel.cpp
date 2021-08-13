@@ -34,6 +34,7 @@ int32_t main(int32_t argc, char **argv)
       (0 == commandlineArguments.count("freq")) ||
       (0 == commandlineArguments.count("rec-path")) ||
       (0 == commandlineArguments.count("max-preview-distance")) ||
+      (0 == commandlineArguments.count("lateral-error-gain")) ||
       (0 == commandlineArguments.count("time-to-align"))
       // (0 == commandlineArguments.count("time-to-arrive"))
   )
@@ -80,6 +81,7 @@ int32_t main(int32_t argc, char **argv)
     float maxPreviewDistance{
         std::stof(commandlineArguments["max-preview-distance"])};
     float timeToAlign{std::stof(commandlineArguments["time-to-align"])};
+    float lateralErrorGain{std::stof(commandlineArguments["lateral-error-gain"])};
     // float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
     double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
 
@@ -157,7 +159,7 @@ int32_t main(int32_t argc, char **argv)
     auto onGeodeticWgs84Reading{
         [&od4, &wgsMutex, &curPos, &curAimpoint, &prevPos, &hasPrevPos, &globalPath,
          &closestGlobalPointIndex, &globalPathIsClosed, &maxPreviewDistance,
-         &timeToAlign,
+         &timeToAlign, &lateralErrorGain,
          //  &timeToArrive,
          &senderStampInput, &senderStampOutput,
          &constantSpeedTarget, &verbose](cluon::data::Envelope &&envelope)
@@ -334,9 +336,29 @@ int32_t main(int32_t argc, char **argv)
             // wgs84.longitude(aimPoint[1]);
             // od4.send(wgs84, cluon::time::now(), 98);
 
+
+            // Step 4.5: Find lateral error
+
+            double lateralError;
+            {
+              auto p0 = wgs84::toCartesian(pos, aimPoint);
+              auto p1 = wgs84::toCartesian(pos, globalPath[closestPointIndex]);
+
+              double aimAngle = atan2(p0[1], p0[0]);
+              
+              //double errX = p1[0] * cos(aimAngle) - p1[1] * sin(aimAngle);
+              double errY = p1[0] * sin(aimAngle) + p1[1] * cos(aimAngle);
+
+              lateralError = errY;
+              if (verbose) {
+                std::cout << "Lateral error: " << lateralError << std::endl;
+              }
+            }
+
+
             // Step 5: Calculate and send control
             double vx = constantSpeedTarget;
-            double yawRate = timeToAlign * aimPointAngle;
+            double yawRate = timeToAlign * aimPointAngle + lateralErrorGain * lateralError;
 
             if (verbose)
             {
@@ -344,6 +366,17 @@ int32_t main(int32_t argc, char **argv)
 
               std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
             }
+
+            yawRate += lateralErrorGain * lateralError;
+            
+            if (verbose)
+            {
+              // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
+
+              std::cout << "Modified yaw rate: " << yawRate << std::endl;
+            }
+
+
 
             opendlv::proxy::GroundMotionRequest gmr;
             gmr.vx(static_cast<float>(vx));
