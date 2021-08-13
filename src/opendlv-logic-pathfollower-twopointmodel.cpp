@@ -344,8 +344,17 @@ int32_t main(int32_t argc, char **argv)
             {
               auto p0 = wgs84::toCartesian(pos, aimPoint);
               auto p1 = wgs84::toCartesian(pos, globalPath[closestPointIndex]);
+              double const pi = 3.1415926535;
 
               double aimAngle = atan2(p0[1], p0[0]);
+              while (aimAngle < -pi)
+              {
+                aimAngle += 2.0 * pi;
+              }
+              while (aimAngle > pi)
+              {
+                aimAngle -= 2.0 * pi;
+              }
 
               //double errX = p1[0] * cos(aimAngle) - p1[1] * sin(aimAngle);
               double errY = p1[0] * sin(aimAngle) + p1[1] * cos(aimAngle);
