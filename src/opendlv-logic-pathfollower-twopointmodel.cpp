@@ -87,6 +87,8 @@ int32_t main(int32_t argc, char **argv)
     // float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
     double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
 
+    double const CUTOFF{(commandlineArguments.count("cutoff") != 0) ? std::stod(commandlineArguments["cutoff"]) : 0.1};
+
     cluon::OD4Session od4{
         static_cast<uint16_t>(std::stoi(commandlineArguments["cid"]))};
 
@@ -163,7 +165,7 @@ int32_t main(int32_t argc, char **argv)
          &closestGlobalPointIndex, &globalPathIsClosed, &maxPreviewDistance,
          &timeToAlign, &lateralErrorGain,
          //  &timeToArrive,
-         &senderStampInput, &senderStampOutput,
+         &senderStampInput, &senderStampOutput, &CUTOFF,
          &constantSpeedTarget, &verbose](cluon::data::Envelope &&envelope)
         {
           if (envelope.senderStamp() == senderStampInput)
@@ -369,15 +371,15 @@ int32_t main(int32_t argc, char **argv)
               std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
             }
 
-            if (std::abs(lateralError) > 0.3)
+            if (std::abs(lateralError) > CUTOFF)
             {
               if (lateralError < 0)
               {
-                lateralError += 0.3;
+                lateralError += CUTOFF;
               }
               else
               {
-                lateralError -= 0.3;
+                lateralError -= CUTOFF;
               }
               yawRate += lateralErrorGain * lateralError;
               if (verbose)
