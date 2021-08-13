@@ -362,7 +362,7 @@ int32_t main(int32_t argc, char **argv)
 
             // Step 5: Calculate and send control
             double vx = constantSpeedTarget;
-            double yawRate = timeToAlign * aimPointAngle + lateralErrorGain * lateralError;
+            double yawRate = timeToAlign * aimPointAngle;
 
             if (verbose)
             {
@@ -381,7 +381,7 @@ int32_t main(int32_t argc, char **argv)
               {
                 lateralError -= CUTOFF;
               }
-              yawRate += lateralErrorGain * lateralError;
+              yawRate += (lateralErrorGain * lateralError);
               if (verbose)
               {
                 // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
