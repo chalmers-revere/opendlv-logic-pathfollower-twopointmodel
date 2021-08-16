@@ -36,7 +36,7 @@ int32_t main(int32_t argc, char **argv)
       (0 == commandlineArguments.count("max-preview-distance")) ||
       (0 == commandlineArguments.count("lateral-error-gain")) ||
       (0 == commandlineArguments.count("time-to-align"))
-      // (0 == commandlineArguments.count("time-to-arrive"))
+      // (0 == commandlineArguments.count("time-to-arrive")) // used in the future?
   )
   {
     std::cerr << argv[0] << " follows a GPS path from the given .rec file by"
@@ -44,34 +44,29 @@ int32_t main(int32_t argc, char **argv)
               << std::endl
               << "Usage:   " << argv[0] << " --cid=<CID> --freq=<Frequency to send> "
               << "--rec-path=<File where the GPS path is stored> "
+              // << "--ref-path=<File where the ref GPS path is stored> "
               << "--max-preview-distance=<Max preview distance> "
               << "--time-to-align=<Time-to-align the preview point in yaw angle> "
-              << "--time-to-arrive=<Time-to-arrive to preview point>"
+              << "--lateral-error-gain=<proportional control gain to correct for lateral error> "
+              // << "--time-to-arrive=<Time-to-arrive to preview point>"
               << "[--id-input=<Sender stamp of GPS input>]"
               << "[--id-output=<Sender stamp of motion request output>]"
               << "[--speedtarget=<target constant speed>]"
+              << "[--cutoff=<lateral path cutoff for relaxed lateral control>]"
               << "[--verbose]"
               << std::endl
               << "Example: " << argv[0] << " --cid=111 --freq=20 "
               << "--rec-path=gps-path.rec --max-preview-distance=20.0 "
-              << "--time-to-align=2.5" << std::endl;
+              << "--time-to-align=2.5 --lateral-error-gain=0.1" << std::endl;
   }
   else
   {
-    // 2021-08-10 17:06:05 | Curvature, adaptive speed?
-    // 2021-08-10 17:06:23 | Hack next gnss trace?
-    // 2021-08-10 17:06:56 | Optimal speed?
 
-    // 2021-08-10 14:55:13 | 50 km /h, steerincoeff 10, maxpreview 30,time2align 2.7
-    // 2021-08-10 14:55:13 | 70 km /h, steerincoeff 16.8, maxpreview 25, time2align 2.2
-
-    // 2021-08-13 12:52:25 | 50 km/h ,steerincoeff 16.8, maxpreview 15, time2align 2.0
-    // 2021-08-13 13:51:31 | 60 km/h ,steerincoeff 16.8, maxpreview 18, time2align 2.0
-    // 2021-08-13 14:09:56 | 70 km/h ,steerincoeff 16.8, maxpreview 21, time2align 2.0
+    // 2021-08-13 12:52:25 | 50 km/h ,steerincoeff 16.8, maxpreview 15, time2align 0.5, lateral-error-gain=0.1, cutoff=0.1
+    // 2021-08-13 13:51:31 | 60 km/h ,steerincoeff 16.8, maxpreview 18, time2align 0.5, lateral-error-gain=0.1, cutoff=0.1
 
     // 2021-08-13 14:34:09 | Higher speed gives more different vehicle dynamics, in regards to steering. Slip angle makes it hard to steer. One potential fix is to increase steering coef.
-
-    // 2021-08-13 15:36:29 | Error sign in lateral-error-gain for y;
+    // 2021-08-13 14:09:56 | 70 km/h ,steerincoeff 16.8, maxpreview 21, time2align 2.0, this is not working correctly...
 
     uint32_t const senderStampInput{
         (commandlineArguments.count("id-input") != 0) ? static_cast<uint32_t>(std::stoi(commandlineArguments["id-input"])) : 0};
@@ -85,87 +80,104 @@ int32_t main(int32_t argc, char **argv)
     float timeToAlign{std::stof(commandlineArguments["time-to-align"])};
     float lateralErrorGain{std::stof(commandlineArguments["lateral-error-gain"])};
     // float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
-    double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6};
-
-    double const CUTOFF{(commandlineArguments.count("cutoff") != 0) ? std::stod(commandlineArguments["cutoff"]) : 0.1};
+    double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6}; // meter per second
+    double const lateralPathCutoff{(commandlineArguments.count("cutoff") != 0) ? std::stod(commandlineArguments["cutoff"]) : 0.1};
 
     cluon::OD4Session od4{
         static_cast<uint16_t>(std::stoi(commandlineArguments["cid"]))};
 
-    std::vector<std::array<double, 2>> globalPath;
-    bool globalPathIsClosed{false};
-    uint32_t maxInd{0};
-
+    // A class for holding path information.
+    struct globalPath_t
     {
+      std::vector<std::array<double, 2>> path;
+      bool isClosed{false};
+      uint32_t maxInd{0};
       double maxDistance{0.0};
-      cluon::Player player(commandlineArguments["rec-path"], false, false);
-      while (player.hasMoreData())
-      {
-        auto next = player.getNextEnvelopeToBeReplayed();
-        if (next.first)
+      globalPath_t(std::vector<std::array<double, 2>> a_path, bool a_isClosed, uint32_t a_maxInd, double a_maxDistance)
+          : path{a_path},
+            isClosed{a_isClosed},
+            maxInd{a_maxInd},
+            maxDistance{a_maxDistance} {};
+    };
+
+    auto loadGlobalPath{
+        [&verbose](std::string const filePath)
         {
-          cluon::data::Envelope env{std::move(next.second)};
-          if (env.dataType() == opendlv::proxy::GeodeticWgs84Reading::ID())
+          std::vector<std::array<double, 2>> globalPathVec;
+          bool globalPathIsClosed{false};
+          uint32_t maxInd{0};
+          double maxDistance{0.0};
+          cluon::Player player(filePath, false, false);
+          while (player.hasMoreData())
           {
-            auto msg =
-                cluon::extractMessage<opendlv::proxy::GeodeticWgs84Reading>(
-                    std::move(env));
-
-            // od4.send(msg, cluon::time::now(), 99);
-
-            std::array<double, 2> pos{msg.latitude(), msg.longitude()};
-            if (!globalPath.empty())
+            auto next = player.getNextEnvelopeToBeReplayed();
+            if (next.first)
             {
-              auto prevPos{globalPath.back()};
-              auto c = wgs84::toCartesian(prevPos, pos);
-              double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
-              maxInd = (distance > maxDistance) ? globalPath.size() : maxInd;
-              maxDistance = (distance > maxDistance) ? distance : maxDistance;
+              cluon::data::Envelope env{std::move(next.second)};
+              if (env.dataType() == opendlv::proxy::GeodeticWgs84Reading::ID())
+              {
+                auto msg =
+                    cluon::extractMessage<opendlv::proxy::GeodeticWgs84Reading>(
+                        std::move(env));
+
+                std::array<double, 2> pos{msg.latitude(), msg.longitude()};
+                if (!globalPathVec.empty())
+                {
+                  auto prevPos{globalPathVec.back()};
+                  auto c = wgs84::toCartesian(prevPos, pos);
+                  double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
+                  maxInd = (distance > maxDistance) ? globalPathVec.size() : maxInd;
+                  maxDistance = (distance > maxDistance) ? distance : maxDistance;
+                }
+                globalPathVec.push_back(pos);
+              }
             }
-            globalPath.push_back(pos);
           }
-        }
-      }
-      if (globalPath.size() < 1)
-      {
-        std::cerr << "No global path was found in the give .rec file."
-                  << std::endl;
-        return 1;
-      }
-      auto c = wgs84::toCartesian(globalPath.front(), globalPath.back());
-      double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
-      // 2021-08-12 15:06:54 | Hard condition to meet (distance < maxDistance) which is rouhgly 0.5m.
-      // Changing this to a hardcoded constant, 5m.
-      if (distance < 5.0)
-      {
-        globalPathIsClosed = true;
-      }
-      if (verbose)
-      {
-        std::cout << "The global path was loaded, it contains "
-                  << globalPath.size() << " points with the longest distance "
-                  << maxDistance << " m between points at ind " << maxInd << ".";
-        if (globalPathIsClosed)
-        {
-          std::cout << " The path is closed.";
-        }
-        std::cout << std::endl;
-      }
+          if (globalPathVec.size() < 1)
+          {
+            std::cerr << "No global path was found in the give .rec file."
+                      << std::endl;
+          }
+          auto c = wgs84::toCartesian(globalPathVec.front(), globalPathVec.back());
+          // end point distance
+          double endPointDistance{sqrt(c[0] * c[0] + c[1] * c[1])};
+          if (endPointDistance < 2.0)
+          {
+            globalPathIsClosed = true;
+          }
+          if (verbose)
+          {
+            std::cout << "The global path in " << filePath << "  was loaded, it contains "
+                      << globalPathVec.size() << " points with the longest distance "
+                      << maxDistance << " m between points at ind " << maxInd << ".";
+            if (globalPathIsClosed)
+            {
+              std::cout << " The path is closed.";
+            }
+            std::cout << std::endl;
+          }
+          return globalPath_t{globalPathVec, globalPathIsClosed, maxInd, maxDistance};
+        }};
+
+    globalPath_t refGlobalPath = loadGlobalPath(commandlineArguments["rec-path"]);
+    if (refGlobalPath.path.size() < 1)
+    {
+      return 1;
     }
 
     bool hasPrevPos = false;
     std::mutex wgsMutex;
-    std::array<double, 2> curPos{globalPath.front()};
-    std::array<double, 2> curAimpoint{globalPath.front()};
+    std::array<double, 2> curPos{refGlobalPath.path.front()};
+    std::array<double, 2> curAimpoint{refGlobalPath.path.front()};
     std::array<double, 2> prevPos{};
     int32_t closestGlobalPointIndex{-1};
 
     auto onGeodeticWgs84Reading{
-        [&od4, &wgsMutex, &curPos, &curAimpoint, &prevPos, &hasPrevPos, &globalPath,
-         &closestGlobalPointIndex, &globalPathIsClosed, &maxPreviewDistance,
+        [&od4, &wgsMutex, &curPos, &curAimpoint, &prevPos, &hasPrevPos, &refGlobalPath,
+         &closestGlobalPointIndex, &maxPreviewDistance,
          &timeToAlign, &lateralErrorGain,
          //  &timeToArrive,
-         &senderStampInput, &senderStampOutput, &CUTOFF,
+         &senderStampInput, &senderStampOutput, &lateralPathCutoff,
          &constantSpeedTarget, &verbose](cluon::data::Envelope &&envelope)
         {
           if (envelope.senderStamp() == senderStampInput)
@@ -194,13 +206,13 @@ int32_t main(int32_t argc, char **argv)
             double minDistance = std::numeric_limits<double>::max();
             double prevDistanceLo = std::numeric_limits<double>::max();
             double prevDistanceHi = std::numeric_limits<double>::max();
-            for (uint32_t i = 0; i <= globalPath.size() / 2; ++i)
+            for (uint32_t i = 0; i <= refGlobalPath.path.size() / 2; ++i)
             {
               bool isIncreasingDistanceLo;
               {
                 int32_t j0 = closestGlobalPointIndex - i;
-                j0 = (j0 < 0) ? globalPath.size() + j0 : j0;
-                auto posLo{globalPath[j0]};
+                j0 = (j0 < 0) ? refGlobalPath.path.size() + j0 : j0;
+                auto posLo{refGlobalPath.path[j0]};
 
                 auto c = wgs84::toCartesian(pos, posLo);
                 double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
@@ -215,10 +227,10 @@ int32_t main(int32_t argc, char **argv)
               bool isIncreasingDistanceHi;
               {
                 int32_t j1 = closestGlobalPointIndex + i + 1;
-                j1 = (j1 > static_cast<int32_t>(globalPath.size() - 1))
-                         ? j1 - globalPath.size()
+                j1 = (j1 > static_cast<int32_t>(refGlobalPath.path.size() - 1))
+                         ? j1 - refGlobalPath.path.size()
                          : j1;
-                auto posHi{globalPath[j1]};
+                auto posHi{refGlobalPath.path[j1]};
 
                 auto c = wgs84::toCartesian(pos, posHi);
                 double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
@@ -263,37 +275,38 @@ int32_t main(int32_t argc, char **argv)
             //   j1Heading = atan2(j1Direction[1], j1Direction[0]);
             // }
 
-            bool goingBackwards = false;
+            // 2021-08-16 16:07:30 | How is this used?
+            // bool goingBackwards = false;
             //            (fabs(heading - j0Heading) < fabs(heading - j1Heading));
 
             // Step 4: Find aim point
-            std::array<double, 2> aimPoint = globalPath[closestPointIndex];
+            std::array<double, 2> aimPoint = refGlobalPath.path[closestPointIndex];
             double aimPointAngle{};
             double aimPointDistance{};
             for (int32_t i = 1;; ++i)
             {
               int32_t j;
-              if (goingBackwards)
+              // if (goingBackwards)
+              // {
+              // j = closestPointIndex - i;
+              // if (j < 0)
+              // {
+              //   j = refGlobalPath.isClosed ? refGlobalPath.path.size() - i : 0;
+              // }
+              // }
+              // else
+              // {
+              j = closestPointIndex + i;
+              if (j > static_cast<int32_t>(refGlobalPath.path.size()) - 1)
               {
-                j = closestPointIndex - i;
-                if (j < 0)
-                {
-                  j = globalPathIsClosed ? globalPath.size() - i : 0;
-                }
+                j = refGlobalPath.isClosed ? j - refGlobalPath.path.size()
+                                           : refGlobalPath.path.size() - 1;
               }
-              else
-              {
-                j = closestPointIndex + i;
-                if (j > static_cast<int32_t>(globalPath.size()) - 1)
-                {
-                  j = globalPathIsClosed ? j - globalPath.size()
-                                         : globalPath.size() - 1;
-                }
-              }
+              // }
 
               double distance;
               {
-                auto c = wgs84::toCartesian(aimPoint, globalPath[j]);
+                auto c = wgs84::toCartesian(aimPoint, refGlobalPath.path[j]);
                 distance = aimPointDistance + sqrt(c[0] * c[0] + c[1] * c[1]);
                 if (distance > maxPreviewDistance)
                 {
@@ -303,33 +316,35 @@ int32_t main(int32_t argc, char **argv)
 
               double angle;
               {
-                double const pi = 3.1415926535;
-                auto direction = wgs84::toCartesian(pos, globalPath[j]);
+                // double const pi = 3.1415926535; use //M_PI instead
+                auto direction = wgs84::toCartesian(pos, refGlobalPath.path[j]);
                 angle = atan2(direction[1], direction[0]) - heading;
-                while (angle < -pi)
+                while (angle < -M_PI)
                 {
-                  angle += 2.0 * pi;
+                  angle += 2.0 * M_PI;
                 }
-                while (angle > pi)
+                while (angle > M_PI)
                 {
-                  angle -= 2.0 * pi;
+                  angle -= 2.0 * M_PI;
                 }
               }
 
-              aimPoint = globalPath[j];
+              aimPoint = refGlobalPath.path[j];
               aimPointAngle = angle;
               aimPointDistance = distance;
 
+              if (!refGlobalPath.isClosed && j == static_cast<int32_t>(refGlobalPath.path.size()) - 1)
               {
-                if (!globalPathIsClosed && ((goingBackwards && j == 0) || (!goingBackwards && j == static_cast<int32_t>(globalPath.size()) - 1)))
+                if (verbose)
                 {
-                  if (verbose)
-                  {
-                    std::cout << "Reached the end of the global path."
-                              << std::endl;
-                  }
-                  break;
+                  std::cout << "Reached the end of the preloaded global path."
+                            << std::endl;
                 }
+                opendlv::proxy::GroundMotionRequest gmr;
+                gmr.vx(0.0f);
+                gmr.yawRate(0.0f);
+                od4.send(gmr, cluon::time::now(), senderStampOutput);
+                break;
               }
             }
 
@@ -345,7 +360,7 @@ int32_t main(int32_t argc, char **argv)
             double lateralError;
             {
               auto p0 = wgs84::toCartesian(pos, aimPoint);
-              auto p1 = wgs84::toCartesian(pos, globalPath[closestPointIndex]);
+              auto p1 = wgs84::toCartesian(pos, refGlobalPath.path[closestPointIndex]);
 
               double previewAngle = atan2(p0[1], p0[0]);
 
@@ -362,8 +377,7 @@ int32_t main(int32_t argc, char **argv)
 
             // Step 5: Calculate and send control
             double vx = constantSpeedTarget;
-            double yawRate = timeToAlign * aimPointAngle;
-
+            double yawRate = aimPointAngle / timeToAlign;
             if (verbose)
             {
               // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
@@ -371,21 +385,19 @@ int32_t main(int32_t argc, char **argv)
               std::cout << "Sends vx: " << vx << " yaw rate: " << yawRate << std::endl;
             }
 
-            if (std::abs(lateralError) > CUTOFF)
+            if (std::abs(lateralError) > lateralPathCutoff)
             {
               if (lateralError < 0)
               {
-                lateralError += CUTOFF;
+                lateralError += lateralPathCutoff;
               }
               else
               {
-                lateralError -= CUTOFF;
+                lateralError -= lateralPathCutoff;
               }
               yawRate += (lateralErrorGain * lateralError);
               if (verbose)
               {
-                // std::cout << "aimPointAngle: " << aimPointAngle << " aimPointDistance: " << aimPointDistance << std::endl;
-
                 std::cout << "Modified yaw rate: " << yawRate << std::endl;
               }
             }
@@ -408,13 +420,13 @@ int32_t main(int32_t argc, char **argv)
 
     auto refCanvas{CvPlot::makePlotAxes()};
 
-    auto refCanvasInit{
-        [&refCanvas, &globalPath, &maxInd]()
+    auto initRefCanvas{
+        [&refCanvas, &refGlobalPath]()
         {
           std::vector<double> xCartesianCord;
           std::vector<double> yCartesianCord;
-          std::array<double, 2> reference = globalPath.front();
-          for (std::array<double, 2> wgs84Point : globalPath)
+          std::array<double, 2> reference = refGlobalPath.path.front();
+          for (std::array<double, 2> wgs84Point : refGlobalPath.path)
           {
             auto cartesianCords = wgs84::toCartesian(reference, wgs84Point);
             xCartesianCord.push_back(cartesianCords.front());
@@ -424,7 +436,7 @@ int32_t main(int32_t argc, char **argv)
           // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.front()}, std::vector<double>{yCartesianCord.front()}, "go").setName("Start");
           // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.back()}, std::vector<double>{yCartesianCord.back()}, "ro").setName("End");
           // 10081
-          refCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "ro").setName("Largest jump");
+          refCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(refGlobalPath.maxInd)}, std::vector<double>{yCartesianCord.at(refGlobalPath.maxInd)}, "ro").setName("Largest jump");
 
           // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "go").setName("Current");
           // cvCanvas.create<CvPlot::Series>(std::vector<double>{xCartesianCord.at(maxInd)}, std::vector<double>{yCartesianCord.at(maxInd)}, "r.").setName("Aimpoint");
@@ -434,21 +446,17 @@ int32_t main(int32_t argc, char **argv)
           refCanvas.yLabel("y [m]");
           refCanvas.create<CvPlot::Legend>().setParentAxes(&refCanvas);
 
-          // CvPlot::show("Path", plotCanvas);
-          // auto PlotImage{plotCanvas.render(800, 800).getUMat(cv::ACCESS_READ)};
-          // std::cout << "Plotting the loaded path." << std::endl;
-          // cv::imshow("Plotting", PlotImage);
-          // cv::waitKey();
+          // CvPlot::show("Path", refCanvas);
 
           cv::imshow("Loaded GNSS map", refCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
           cv::waitKey(1000);
         }};
-    refCanvasInit();
+    initRefCanvas();
 
     auto realtimeCanvas{CvPlot::makePlotAxes()};
 
     auto initCanvas{
-        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &globalPath]()
+        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &refGlobalPath]()
         {
           std::array<double, 2> curPosCopy;
           std::array<double, 2> curAimpointCopy;
@@ -461,7 +469,7 @@ int32_t main(int32_t argc, char **argv)
           std::vector<double> xCartesianCord;
           std::vector<double> yCartesianCord;
           // std::array<double, 2> reference = globalPath.front();
-          for (std::array<double, 2> wgs84Point : globalPath)
+          for (std::array<double, 2> wgs84Point : refGlobalPath.path)
           {
             auto cartesianCords = wgs84::toCartesian(curPosCopy, wgs84Point);
             xCartesianCord.push_back(cartesianCords.front());
@@ -491,7 +499,7 @@ int32_t main(int32_t argc, char **argv)
         }};
 
     auto renderCanvas{
-        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &globalPath]()
+        [&realtimeCanvas, &wgsMutex, &curPos, &curAimpoint, &refGlobalPath]()
         {
           std::array<double, 2> curPosCopy;
           std::array<double, 2> curAimpointCopy;
@@ -515,7 +523,7 @@ int32_t main(int32_t argc, char **argv)
               xCartesianCord;
           std::vector<double> yCartesianCord;
           // std::array<double, 2> reference = globalPath.front();
-          for (std::array<double, 2> wgs84Point : globalPath)
+          for (std::array<double, 2> wgs84Point : refGlobalPath.path)
           {
             auto cartesianCords = wgs84::toCartesian(curPosCopy, wgs84Point);
             xCartesianCord.push_back(cartesianCords.front());
