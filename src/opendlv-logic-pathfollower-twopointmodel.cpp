@@ -82,6 +82,7 @@ int32_t main(int32_t argc, char **argv)
     // float timeToArrive{std::stof(commandlineArguments["time-to-arrive"])};
     double const constantSpeedTarget{(commandlineArguments.count("speedtarget") != 0) ? std::stod(commandlineArguments["speedtarget"]) : 5.0 / 3.6}; // meter per second
     double const lateralPathCutoff{(commandlineArguments.count("cutoff") != 0) ? std::stod(commandlineArguments["cutoff"]) : 0.1};
+    bool const gui{commandlineArguments.count("gui") != 0};
 
     cluon::OD4Session od4{
         static_cast<uint16_t>(std::stoi(commandlineArguments["cid"]))};
@@ -271,7 +272,7 @@ int32_t main(int32_t argc, char **argv)
                 {
                   minDistance = distance;
                   closestPointIndex = j0;
-                  std::cout << "j0: " << j0 << std::endl;
+                  // std::cout << "j0: " << j0 << std::endl;
                 }
                 // isIncreasingDistanceLo = (distance > prevDistanceLo);
                 // prevDistanceLo = distance;
@@ -290,7 +291,7 @@ int32_t main(int32_t argc, char **argv)
                 {
                   minDistance = distance;
                   closestPointIndex = j1;
-                  std::cout << "j1: " << j1 << std::endl;
+                  // std::cout << "j1: " << j1 << std::endl;
                 }
                 // isIncreasingDistanceHi = (distance > prevDistanceHi);
                 // prevDistanceHi = distance;
@@ -302,7 +303,7 @@ int32_t main(int32_t argc, char **argv)
               // }
             }
             closestGlobalPointIndex = closestPointIndex;
-            std::cout << "closestGlobalPointIndex: " << closestGlobalPointIndex << std::endl;
+            // std::cout << "closestGlobalPointIndex: " << closestGlobalPointIndex << std::endl;
             prevPos = pos;
 
             // Step 3: Find what direction to go, based on heading
@@ -473,11 +474,10 @@ int32_t main(int32_t argc, char **argv)
     od4.dataTrigger(opendlv::proxy::GeodeticWgs84Reading::ID(),
                     onGeodeticWgs84Reading);
 
-    auto refCanvas{CvPlot::makePlotAxes()};
-
-    auto initRefCanvas{
-        [&refCanvas, &refGlobalPath]()
+    auto plotRefCanvas{
+        [&refGlobalPath]()
         {
+          auto refCanvas{CvPlot::makePlotAxes()};
           std::vector<double> xCartesianCord;
           std::vector<double> yCartesianCord;
           std::array<double, 2> reference = refGlobalPath.path.front();
@@ -506,7 +506,6 @@ int32_t main(int32_t argc, char **argv)
           cv::imshow("Loaded GNSS map", refCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
           cv::waitKey(1000);
         }};
-    initRefCanvas();
 
     auto realtimeCanvas{CvPlot::makePlotAxes()};
 
@@ -590,13 +589,22 @@ int32_t main(int32_t argc, char **argv)
 
           cv::imshow("Debug window", realtimeCanvas.render(800, 800).getUMat(cv::ACCESS_READ));
         }};
-
-    initCanvas();
+    if (gui)
+    {
+      plotRefCanvas();
+      initCanvas();
+    }
     while (od4.isRunning())
     {
-      renderCanvas();
-      cv::waitKey(500);
-      // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      if (gui)
+      {
+        renderCanvas();
+        cv::waitKey(500);
+      }
+      else
+      {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      }
     }
 
     // Reset control
