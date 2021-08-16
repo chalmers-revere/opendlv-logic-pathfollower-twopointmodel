@@ -192,6 +192,53 @@ int32_t main(int32_t argc, char **argv)
             {
               prevPos = pos;
               hasPrevPos = true;
+              // Finding the initial closest point
+              int32_t closestPointIndex = -1;
+              double minDistance = std::numeric_limits<double>::max();
+              double prevDistanceLo = std::numeric_limits<double>::max();
+              double prevDistanceHi = std::numeric_limits<double>::max();
+              for (uint32_t i = 0; i <= refGlobalPath.path.size() / 2; ++i)
+              {
+                bool isIncreasingDistanceLo;
+                {
+                  int32_t j0 = (refGlobalPath.path.size() + closestGlobalPointIndex - i) % refGlobalPath.path.size();
+                  // j0 = (j0 < 0) ? refGlobalPath.path.size() + j0 : j0;
+                  auto posLo{refGlobalPath.path[j0]};
+
+                  auto c = wgs84::toCartesian(pos, posLo);
+                  double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
+                  if (distance < minDistance)
+                  {
+                    minDistance = distance;
+                    closestPointIndex = j0;
+                  }
+                  isIncreasingDistanceLo = (distance > prevDistanceLo);
+                  prevDistanceLo = distance;
+                }
+                bool isIncreasingDistanceHi;
+                {
+                  int32_t j1 = (closestGlobalPointIndex + i + 1) % refGlobalPath.path.size();
+                  // j1 = (j1 > static_cast<int32_t>(refGlobalPath.path.size() - 1))
+                  //          ? j1 - refGlobalPath.path.size()
+                  //          : j1;
+                  auto posHi{refGlobalPath.path[j1]};
+
+                  auto c = wgs84::toCartesian(pos, posHi);
+                  double distance{sqrt(c[0] * c[0] + c[1] * c[1])};
+                  if (distance < minDistance)
+                  {
+                    minDistance = distance;
+                    closestPointIndex = j1;
+                  }
+                  isIncreasingDistanceHi = (distance > prevDistanceHi);
+                  prevDistanceHi = distance;
+                }
+                if (closestGlobalPointIndex != -1 && isIncreasingDistanceLo && isIncreasingDistanceHi)
+                {
+                  break;
+                }
+              }
+              closestGlobalPointIndex = closestPointIndex;
               return;
             }
             // 2021-08-10 09:40:59 | This is causing inaccurate estimation at slow speed, especially stand still
@@ -204,14 +251,18 @@ int32_t main(int32_t argc, char **argv)
             // Step 2: Find global point closest to the current position
             int32_t closestPointIndex = -1;
             double minDistance = std::numeric_limits<double>::max();
-            double prevDistanceLo = std::numeric_limits<double>::max();
-            double prevDistanceHi = std::numeric_limits<double>::max();
-            for (uint32_t i = 0; i <= refGlobalPath.path.size() / 2; ++i)
+            // double prevDistanceLo = std::numeric_limits<double>::max();
+            // double prevDistanceHi = std::numeric_limits<double>::max();
+
+            // Look at 50 points forward and 50 backward, this will jump badly if the updates are slow.
+            // Relaxing the previous searching condition
+            for (uint32_t i = 0; i <= 20; ++i)
+            // for (uint32_t i = 0; i <= refGlobalPath.path.size() / 2; ++i)
             {
-              bool isIncreasingDistanceLo;
+              // bool isIncreasingDistanceLo;
               {
-                int32_t j0 = closestGlobalPointIndex - i;
-                j0 = (j0 < 0) ? refGlobalPath.path.size() + j0 : j0;
+                int32_t j0 = (refGlobalPath.path.size() + closestGlobalPointIndex - i) % refGlobalPath.path.size();
+                // j0 = (j0 < 0) ? refGlobalPath.path.size() + j0 : j0;
                 auto posLo{refGlobalPath.path[j0]};
 
                 auto c = wgs84::toCartesian(pos, posLo);
@@ -220,16 +271,17 @@ int32_t main(int32_t argc, char **argv)
                 {
                   minDistance = distance;
                   closestPointIndex = j0;
+                  std::cout << "j0: " << j0 << std::endl;
                 }
-                isIncreasingDistanceLo = (distance > prevDistanceLo);
-                prevDistanceLo = distance;
+                // isIncreasingDistanceLo = (distance > prevDistanceLo);
+                // prevDistanceLo = distance;
               }
-              bool isIncreasingDistanceHi;
+              // bool isIncreasingDistanceHi;
               {
-                int32_t j1 = closestGlobalPointIndex + i + 1;
-                j1 = (j1 > static_cast<int32_t>(refGlobalPath.path.size() - 1))
-                         ? j1 - refGlobalPath.path.size()
-                         : j1;
+                int32_t j1 = (closestGlobalPointIndex + i + 1) % refGlobalPath.path.size();
+                // j1 = (j1 > static_cast<int32_t>(refGlobalPath.path.size() - 1))
+                //          ? j1 - refGlobalPath.path.size()
+                //          : j1;
                 auto posHi{refGlobalPath.path[j1]};
 
                 auto c = wgs84::toCartesian(pos, posHi);
@@ -238,16 +290,19 @@ int32_t main(int32_t argc, char **argv)
                 {
                   minDistance = distance;
                   closestPointIndex = j1;
+                  std::cout << "j1: " << j1 << std::endl;
                 }
-                isIncreasingDistanceHi = (distance > prevDistanceHi);
-                prevDistanceHi = distance;
+                // isIncreasingDistanceHi = (distance > prevDistanceHi);
+                // prevDistanceHi = distance;
               }
-              if (closestGlobalPointIndex != -1 && isIncreasingDistanceLo && isIncreasingDistanceHi)
-              {
-                break;
-              }
+              // Narrow condition, will stop in a white noise data section and get stuck. Common in the end points (stand still)
+              // if (closestGlobalPointIndex != -1 && isIncreasingDistanceLo && isIncreasingDistanceHi)
+              // {
+              //   break;
+              // }
             }
             closestGlobalPointIndex = closestPointIndex;
+            std::cout << "closestGlobalPointIndex: " << closestGlobalPointIndex << std::endl;
             prevPos = pos;
 
             // Step 3: Find what direction to go, based on heading
@@ -540,7 +595,7 @@ int32_t main(int32_t argc, char **argv)
     while (od4.isRunning())
     {
       renderCanvas();
-      cv::waitKey(100);
+      cv::waitKey(500);
       // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
