@@ -31,7 +31,7 @@ int32_t main(int32_t argc, char **argv)
   int32_t retCode{1};
   auto commandlineArguments = cluon::getCommandlineArguments(argc, argv);
   if ((0 == commandlineArguments.count("cid")) ||
-      (0 == commandlineArguments.count("freq")) ||
+      // (0 == commandlineArguments.count("freq")) ||
       (0 == commandlineArguments.count("rec-path")) ||
       (0 == commandlineArguments.count("max-preview-distance")) ||
       (0 == commandlineArguments.count("lateral-error-gain")) ||
@@ -55,7 +55,8 @@ int32_t main(int32_t argc, char **argv)
               << "[--cutoff=<lateral path cutoff for relaxed lateral control>]"
               << "[--verbose]"
               << std::endl
-              << "Example: " << argv[0] << " --cid=111 --freq=20 "
+              << "Example: " << argv[0] << " --cid=111 "
+              // << "--freq=20 "
               << "--rec-path=gps-path.rec --max-preview-distance=20.0 "
               << "--time-to-align=2.5 --lateral-error-gain=0.1" << std::endl;
   }
@@ -255,9 +256,9 @@ int32_t main(int32_t argc, char **argv)
             // double prevDistanceLo = std::numeric_limits<double>::max();
             // double prevDistanceHi = std::numeric_limits<double>::max();
 
-            // Look at 50 points forward and 50 backward, this will jump badly if the updates are slow.
+            // Look at 100 points forward and 100 backward, this will jump badly if the updates are slow. (100 points equal 1 s with 100 Hz freq gps data)
             // Relaxing the previous searching condition
-            for (uint32_t i = 0; i <= 20; ++i)
+            for (uint32_t i = 0; i <= 100; ++i)
             // for (uint32_t i = 0; i <= refGlobalPath.path.size() / 2; ++i)
             {
               // bool isIncreasingDistanceLo;
@@ -352,12 +353,12 @@ int32_t main(int32_t argc, char **argv)
               // }
               // else
               // {
-              j = closestPointIndex + i;
-              if (j > static_cast<int32_t>(refGlobalPath.path.size()) - 1)
-              {
-                j = refGlobalPath.isClosed ? j - refGlobalPath.path.size()
-                                           : refGlobalPath.path.size() - 1;
-              }
+              j = (closestPointIndex + i) % refGlobalPath.path.size();
+              // if (j > static_cast<int32_t>(refGlobalPath.path.size()) - 1)
+              // {
+              //   j = refGlobalPath.isClosed ? j - refGlobalPath.path.size()
+              //                              : refGlobalPath.path.size() - 1;
+              // }
               // }
 
               double distance;
